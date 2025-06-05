@@ -44,7 +44,9 @@ The Zigbee connection should be made if the ESP devices are powered. Whenever th
     - The timestamps that differ by more than 5 seconds should indicate a real network failure, where the LED would turn off. From testing these disconnects to range from 6 seconds to a full minute before reconnecting. It is recommended to wait an extended period of time to ensure that the connection has truly failed, if that's what is believed to be the case.
 
  ## Troubleshooting
-- When modifying code to re-flash onto the ESP boards, if they unexpectedly lose power, or during some other odd scenarios, the Zigbee connection will sometimes fail to establish. This will likely require the user to run idf.py erase-flash on both boards and them to be re-flashed to ensure a fresh network state. Especially when making changes to the code, it is recommended to test the network connection at the users setup, before moving the boards to remote locations.
-- In addition to erasing and re-flashing, powering up the ESP coordinator before the ESP router can ensure that the network has time to establish before a connection attempts to be made.
 - When the coordinator is started, the network opens for 255 seconds. If the router misses the window, the network may need to be reopened through a coordinator restart.
+- At times, the router may never connect when the network is restarted. This is most commonly caused by modifying code and re-flashing. If a manual restart of both devices fails, it likely means there is cached data about a previous network, which is now no longer applicable and blocks the new network from forming. Running idf.py erase-flash will get rid of the previous network state, and allow a new connection. Sometimes an erase is needed on both devices. Use the -p tag with a port number to wipe specific devices (Ex: idf.py -p COM5 erase-flash).
+- It can be helpful to allow the coordinator to fully boot before starting the router to ensure the network is ready for joining.
+- When planning to hook up devices remotely (especially after code modifications), it can be helpful to make the connection at a close range through a computer so the initial setup can be monitored. Then the devices can be plugged into remote batteries and moved when the connection is established.
+
 
