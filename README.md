@@ -46,7 +46,7 @@ The Zigbee connection should be made if the ESP devices are powered. Whenever th
  ## Troubleshooting
 - When the coordinator is started, the network opens for 255 seconds. If the router misses the window, the network may need to be reopened through a coordinator restart.
 - At times, the router may never connect when the network is restarted. This is most commonly caused by modifying code and re-flashing. If a manual restart of both devices fails, it likely means there is cached data about a previous network, which is now no longer applicable and blocks the new network from forming. Running idf.py erase-flash will get rid of the previous network state, and allow a new connection. Sometimes an erase is needed on both devices. Use the -p tag with a port number to wipe specific devices (Ex: idf.py -p COM5 erase-flash).
-- It can be helpful to allow the coordinator to fully boot before starting the router to ensure the network is ready for joining.
+- It can be helpful to allow the coordinator to fully boot (10 seconds is good enough usually) before starting the router to ensure the network is ready for joining.
 - When planning to hook up devices remotely (especially after code modifications), it can be helpful to make the connection at a close range through a computer so the initial setup can be monitored. Then the devices can be plugged into remote batteries and moved when the connection is established.
 
 
