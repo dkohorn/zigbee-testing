@@ -1,0 +1,23 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "idf.espIdfPathWin": "C:\\Users\\dkohorn\\esp\\v5.4.1\\esp-idf",
+    "idf.pythonInstallPath": "C:\\Users\\dkohorn\\.espressif\\tools\\idf-python\\3.11.2\\python.exe",
+    "idf.openOcdConfigs": [
+        "board/esp32h2-builtin.cfg"
+    ],
+    "idf.portWin": "COM5",
+    "idf.toolsPathWin": "C:\\Users\\dkohorn\\.espressif",
+    "idf.customExtraVars": {
+        "IDF_TARGET": "esp32h2"
+    },
+    "idf.flashType": "UART",
+    "files.associations": {
+        "usb_serial_jtag.h": "c",
+        "esp_vfs_usb_serial_jtag.h": "c",
+        "esp_vfs_eventfd.h": "c",
+        "freertos.h": "c",
+        "compare": "c",
+        "cstdint": "c",
+        "esp_zigbee_gateway.h": "c"
+    }
+}
