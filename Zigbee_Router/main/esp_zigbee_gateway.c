@@ -35,16 +35,14 @@ static bool started_timeout_task = false; // A one-time flag to start the timeou
 #define RECEIVER_TIMEOUT 6000 //Should be onger than cycle time 
 static bool data_is_receiving = false;
 
-//Steering retry
+//Steering retry 
 static int steering_retry_count = 0;  
-#define MAX_STEERING_RETRIES -1 // This may block random disconnects, use with caution
+#define MAX_STEERING_RETRIES 10 
 #define STEERING_RETRY_TIMER 5000 //ms
+static bool use_max_steer_tracking = false; //! Not sure if max steer tracking blocks reconnect attempts, so use with caution
 
 //Disconnect tracking
 static int disconnect_count = 0;
-
-//RTT
-#define RTT_RETURN_CMD_ID 0x0007
 
 
 //Tag
@@ -54,7 +52,7 @@ static const char *TAG = "ESP_ZB_RECEIVER";
     CALLBACKS
 */
 static void network_steering_retry_cb(uint8_t param) {
-    if (steering_retry_count >= MAX_STEERING_RETRIES) {
+    if (use_max_steer_tracking && (steering_retry_count >= MAX_STEERING_RETRIES)) {
         ESP_LOGE(TAG, "Exceeded max network steering retries.");
         return;
     }
