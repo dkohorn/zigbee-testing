@@ -10,7 +10,7 @@ This code is configured for one of the ESP32 boards to act as a coordinator for 
 
 ## How to Use
 
-Download all contents of the folders "Zigbee_Router" and "Zigbee_Coordinator" as well as the offload.py script in the "RPi" folder. Build and flash the Zigbee code onto the ESP32 devices (the main file is gateway.c). All pin connections can be altered at the users discression, however the example layout uses:
+Download all contents of the folders "Zigbee_Router" and "Zigbee_Coordinator" (there are many files in these folders, some of which are required and some not, it is unknown what specifically is needed, so recommended to take everything) as well as the offload.py script in the "RPi" folder. Build and flash the Zigbee code onto the ESP32 devices (the main file is gateway.c). All pin connections can be altered at the users discression, however the example layout uses:
 
 **ESP32 Coordinator:**
 
