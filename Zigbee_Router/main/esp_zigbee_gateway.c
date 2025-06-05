@@ -37,7 +37,7 @@ static bool data_is_receiving = false;
 
 //Steering retry
 static int steering_retry_count = 0;  
-#define MAX_STEERING_RETRIES 10
+#define MAX_STEERING_RETRIES -1 // This may block random disconnects, use with caution
 #define STEERING_RETRY_TIMER 5000 //ms
 
 //Disconnect tracking
