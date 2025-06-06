@@ -6,7 +6,7 @@ This repository contains code for 2 ESP32-H2 Devkit N4 boards, as well as code f
 
 ## Description of Example Test Setup
 
-This code is configured for one of the ESP32 boards to act as a coordinator for the Zigbee network. It will collect data from an attached vibration sensor, and send it to the router ESP32 via a custom zigbee cluster message every 5 seconds. The coordinator will also be connected to the RPi5 and send its round trip times via an I2C connection. The RPi will store the received data in a local file called rtt_log.csv, so the data can be reviewed at a later moment. On both esp32 boards, an LED can be connected to indicate the status of the network (on = connected, off = disconnected).
+This code is configured for one of the ESP32 boards to act as a coordinator for the Zigbee network. It will collect data from an attached vibration sensor, and send it to the router ESP32 via a custom zigbee cluster message every 15 seconds. The coordinator will also be connected to the RPi5 and send its round trip times via an I2C connection. The RPi will store the received data in a local file called rtt_log.csv, so the data can be reviewed at a later moment. On both esp32 boards, an LED can be connected to indicate the status of the network (on = connected, off = disconnected). If the coordinator does not receive any sensor data acknowledgements, it will also log a disconnect to the RPi inside "disconnect_log.csv".
 
 ## How to Use
 
@@ -32,21 +32,19 @@ SDA (3) - GPIO10 on ESP Coordinator
 
 GND - ESP GND
 
-The Zigbee connection should be made if the ESP devices are powered. Whenever the user wishes to start logging, they may run the offload.py which will begin adding data to the local rtt_log.csv file.
+The Zigbee connection should be made if the ESP devices are powered. Whenever the user wishes to start logging, they may run the offload.py which will begin adding data to the local .csv files.
 
 ## Things to note
 
-- The sensor data is sent on 5 second intervals in this example.
-- The LED status indicator on both devices turns on when data is received and acknowledgments are sent back. This means that if the connection breaks, it may take extra time for the LED to turn back on due to the data send delay (5 seconds by default). Keep this in mind when changing values associated with timeouts and message intervals.
+- The sensor data is sent on 15 second intervals in this example.
+- The LED in the router setup will turn off if it detects it no longer is in the network. The LED on coordinator setup will turn off when it does not receive acknowledgements from the router on sent data.
 - Much of the functionality for sending data between devices is handled through timeouts. Ensure there is proper wait time for deciding when a test has failed or succeeded.
-- The RPi does not specifically log disconnects, as it would be tedious to implement. However, when looking at the round trip time logs, both the RTT itself and the timestamp associated with it can tell when a connection is broken:
-    - My assumption is that a high RTT time indicates that there was an interference when the message was sent, delaying the readings in one or both directions. This may not necessarily mean the connection was broken, but could indicate a quick disconnect, not long enough for the timeout and LED to signal it.
-    - The timestamps that differ by more than 5 seconds should indicate a real network failure, where the LED would turn off. From testing these disconnects to range from 6 seconds to a full minute before reconnecting. It is recommended to wait an extended period of time to ensure that the connection has truly failed, if that's what is believed to be the case.
 
- ## Troubleshooting
-- When the coordinator is started, the network opens for 255 seconds. If the router misses the window, the network may need to be reopened through a coordinator restart.
-- At times, the router may never connect when the network is restarted. This is most commonly caused by modifying code and re-flashing. If a manual restart of both devices fails, it likely means there is cached data about a previous network, which is now no longer applicable and blocks the new network from forming. Running idf.py erase-flash will get rid of the previous network state, and allow a new connection. Sometimes an erase is needed on both devices. Use the -p tag with a port number to wipe specific devices (Ex: idf.py -p COM5 erase-flash).
-- It can be helpful to allow the coordinator to fully boot (10 seconds is good enough usually) before starting the router to ensure the network is ready for joining.
+ ## Troubleshooting and Failsafes
+- The coordinator will open its network for 255 seconds on a timer that re-opens when that window expires. This is to keep the connection live for development and testing, but is not recommended for deployment.
+- When the coordinator restarts, it creates a new network with different parameters. The router will not realize this has happened and cache data on the previous network state. This will stop data from being sent back and forth, even though the router LED will stay on. There is a timer that will trigger after 30 seconds of not receiving data, which will cause a factory reset on the board, clearing this cache. This will allow the router to restart searching for the new network and not sit stuck.
+- It can be helpful to allow the coordinator to fully boot (5 seconds is good enough usually) before starting the router to ensure the network is ready for joining.
 - When planning to hook up devices remotely (especially after code modifications), it can be helpful to make the connection at a close range through a computer so the initial setup can be monitored. Then the devices can be plugged into remote batteries and moved when the connection is established.
+- For any unforseen error where the Zigbee connection is not made, erasing the flash on one or both devices can help (usually just the router needs this). To do this, open an ESP-IDF terminal and run idf.py erase-flash or specify a port using the -p PORT_NAME flag. This will clear the cache and other items that may be holding up the devices and allow a clean reconnection.
 
 
