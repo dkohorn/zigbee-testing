@@ -37,7 +37,7 @@ The Zigbee connection should be made if the ESP devices are powered. Whenever th
 ## Things to note
 
 - The sensor data is sent on 15 second intervals in this example.
-- The LED in the router setup will turn off if it detects it no longer is in the network. The LED on coordinator setup will turn off when it does not receive acknowledgements from the router on sent data (30 second timeout).
+- The LED in the router setup will turn off if it detects it no longer is in the network. The LED on coordinator setup will turn off when it does not receive acknowledgements from the router on sent data (17 second timeout = 15 sec send time + 2 sec buffer).
 - Much of the functionality for sending data between devices is handled through timeouts. Ensure there is proper wait time for deciding when a test has failed or succeeded and be wary of what is changed and how it can affect syncing of the other timers.
 
  ## Troubleshooting and Failsafes
