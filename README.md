@@ -42,6 +42,7 @@ The Zigbee connection should be made if the ESP devices are powered. Whenever th
 
  ## Troubleshooting and Failsafes
 - The coordinator will open its network for 255 seconds on a timer that re-opens when that window expires. This is to keep the connection live for development and testing, but is not recommended for deployment.
+- If any normal disconnect happens due to some random interference, the router will begin network steering to reconnect. This check happens on a loop every 2 seconds.
 - When the coordinator restarts, it creates a new network with different parameters. The router will not realize this has happened and cache data on the previous network state. This will stop data from being sent back and forth, even though the router LED will stay on. There is a timer that will trigger after 30 seconds of not receiving data, which will cause a factory reset on the board, clearing this cache. This will allow the router to restart searching for the new network and not sit stuck.
 - It can be helpful to allow the coordinator to fully boot (5 seconds is good enough usually) before starting the router to ensure the network is ready for joining.
 - When planning to hook up devices remotely (especially after code modifications), it can be helpful to make the connection at a close range through a computer so the initial setup can be monitored. Then the devices can be plugged into remote batteries and moved when the connection is established.
