@@ -6,7 +6,7 @@ This repository contains code for 2 ESP32-H2 Devkit N4 boards, as well as code f
 
 ## Description of Example Test Setup
 
-This code is configured for one of the ESP32 boards to act as a coordinator for the Zigbee network. It will collect data from an attached vibration sensor, and send it to the router ESP32 via a custom zigbee cluster message every 15 seconds. The coordinator will also be connected to the RPi5 and send its round trip times via an I2C connection. The RPi will store the received data in a local file called rtt_log.csv, so the data can be reviewed at a later moment. On both esp32 boards, an LED can be connected to indicate the status of the network (on = connected, off = disconnected). If the coordinator does not receive any sensor data acknowledgements, it will also log a disconnect to the RPi inside "disconnect_log.csv".
+This code is configured for one of the ESP32 boards to act as a coordinator for the Zigbee network. It will collect data from an attached vibration sensor, and send it to the router ESP32 via a custom zigbee cluster message every 15 seconds. The coordinator will also be connected to the RPi5 and send its round trip times via an I2C connection. The RPi will store the received data in a local file called rtt_log.csv, so the data can be reviewed at a later moment. On both esp32 boards, an LED can be connected to indicate the status of the network (on = connected, off = disconnected). If there are any fatal errors causing the network to fail, these are logged on the RPi to "disconnect_log.csv".
 
 ## How to Use
 
@@ -47,5 +47,8 @@ The Zigbee connection should be made if the ESP devices are powered. Whenever th
 - It can be helpful to allow the coordinator to fully boot (5 seconds is good enough usually) before starting the router to ensure the network is ready for joining.
 - When planning to hook up devices remotely (especially after code modifications), it can be helpful to make the connection at a close range through a computer so the initial setup can be monitored. Then the devices can be plugged into remote batteries and moved when the connection is established.
 - For any unforseen error where the Zigbee connection is not made, erasing the flash on one or both devices can help (usually just the router needs this). To do this, open an ESP-IDF terminal and run idf.py erase-flash or specify a port using the -p PORT_NAME flag. This will clear the cache and other items that may be holding up the devices and allow a clean reconnection.
-- If a connection completely fails and does not automatically recover in any previously listed way, the watchdog timer on the coordinator ESP itself will go off. This is due to some tasks (likely the ADC sensor reading) being held up. This will full reset the coordinator creating a new network, where the 30 second timeout on the router will then trigger. This will allow the network to be created fresh and data can continue sending without any need for manual intervention. It is unknown what causes this, but likely some interference strong enough to completely destroy the network.
+- Fatal erros that can be logged to "disconnect_log.csv" include:
+   - Watchdog timeouts: Commonly caused by a holdup on a task due to some unknown error. The coordinator should reset itself and the recovery leads to the creation of a new network.
+   - Device unavailable signal: Typically caused by a router going out of range, or a loss of power to the router.
+   - NLME status signal: Typically caused by a range issue or other random interference.
 - If the LED's never go back on, there is a possibility that the battery on an ESP device has failed or there was some other hardware issue.
