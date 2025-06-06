@@ -24,25 +24,19 @@
 #define ESP_ZB_COORDINATOR_ENDPOINT   0x01
 #define CUSTOM_CLUSTER_ID           0xFF00
 
-//LED: 1 = receiving data
+//LED: 1 = connected and on, 0 = disconnected and off
 #define LED_GPIO_PIN GPIO_NUM_5
 
 //Connection detection
-static bool steering_in_progress = false; // ensure network steering isn't called too often
+static bool steering_in_progress = false; // ensure network steering isn't restarted while already searching
 
 //Connection timeout
-static bool started_timeout_task = false; // A one-time flag to start the timeout counter only when first sensor reading is received
-#define RECEIVER_TIMEOUT 6000 //Should be onger than cycle time 
-static bool data_is_receiving = false;
+#define TIMEOUT_CYCLE_TIME 2000
+static bool started_timeout_task = false; // A one-time flag to start the timeout 
 
-//Steering retry 
-static int steering_retry_count = 0;  
-#define MAX_STEERING_RETRIES 10 
-#define STEERING_RETRY_TIMER 5000 //ms
-static bool use_max_steer_tracking = false; //! Not sure if max steer tracking blocks reconnect attempts, so use with caution
-
-//Disconnect tracking
-static int disconnect_count = 0;
+//Steering retry and factory resetting
+#define FACTORY_RESET_TIME 30000 
+static TimerHandle_t factory_reset_timeout_timer = NULL;
 
 
 //Tag
@@ -52,35 +46,39 @@ static const char *TAG = "ESP_ZB_RECEIVER";
     CALLBACKS
 */
 static void network_steering_retry_cb(uint8_t param) {
-    if (use_max_steer_tracking && (steering_retry_count >= MAX_STEERING_RETRIES)) {
-        ESP_LOGE(TAG, "Exceeded max network steering retries.");
-        return;
-    }
-    steering_retry_count++;
-    ESP_LOGW(TAG, "Retrying network steering after failure (this is attempt %d of max %d)", steering_retry_count, MAX_STEERING_RETRIES);
     esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
+}
+
+//Happens on 30 seconds of no response from coordinator, triggers full factory reset to clear cache for new network joining
+//Pretty much only needed if coordinator restarts for some reason
+void timer_callback(TimerHandle_t xTimer) {
+    gpio_set_level(LED_GPIO_PIN, 0);
+
+    started_timeout_task = false;
+    esp_zb_factory_reset();    
 }
 
 /*
     TASKS
 */
-//Used for missed data message from sensor device, assumes network failure 
-static void timeout_task(void *pvParameters) {
-    
+//Constant check to handle regular disconnects
+static void network_timeout() {
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(RECEIVER_TIMEOUT));
+        vTaskDelay(pdMS_TO_TICKS(TIMEOUT_CYCLE_TIME));
 
-        if (data_is_receiving) {
-            data_is_receiving = false; // will be reset to true by handler if data came in, otherwise will alert to connection lost
+        if (esp_zb_bdb_dev_joined()) {
+            steering_in_progress = false;
+            gpio_set_level(LED_GPIO_PIN, 1);
         }
         else {
-            ESP_LOGE(TAG, "Possible connection lost due to timeout (missed a data sensor cycle)");
             gpio_set_level(LED_GPIO_PIN, 0);
-            
-            esp_zb_factory_reset();
-        }
 
-         
+            ESP_LOGI(TAG, "No longer in network, beginning steering...");
+            if (!steering_in_progress) {
+                steering_in_progress = true;
+                esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
+            }
+        }  
     }
 }
 
@@ -89,26 +87,7 @@ static void timeout_task(void *pvParameters) {
 */
 //Handle the incoming sensor data from sender
 static esp_err_t zb_custom_cmd_handler(const esp_zb_zcl_custom_cluster_command_message_t *message) { 
-    
-    //Ensure these flags and LED are set only when strictly necessary
-    if (steering_in_progress) {
-        steering_in_progress = false;
-        steering_retry_count = 0; //reset so it only matters for continuos fails
-    }
-
-    if (!data_is_receiving) {
-        data_is_receiving = true;
-
-        //Turn on to indicate data is coming in
-        gpio_set_level(LED_GPIO_PIN, 1); 
-    }
-
-    //Begin timeout when first piece of data is received
-    if (!started_timeout_task) {
-        started_timeout_task = true;
-        xTaskCreate(timeout_task, "timeout_task", 4096, NULL, 5, NULL);
-    }
-    
+    xTimerReset(factory_reset_timeout_timer, 0);
     ESP_RETURN_ON_FALSE(message, ESP_FAIL, TAG, "Empty message");
     ESP_RETURN_ON_FALSE(message->info.status == ESP_ZB_ZCL_STATUS_SUCCESS, ESP_ERR_INVALID_ARG, TAG, "Received message: error status(%d)", message->info.status);
 
@@ -140,6 +119,9 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
     esp_zb_app_signal_type_t sig_type = *p_sg_p;
 
     switch (sig_type) {
+    case ESP_ZB_NWK_SIGNAL_PERMIT_JOIN_STATUS:
+        ESP_LOGI(TAG, "Network is currently joinable");
+        break;
     case ESP_ZB_ZDO_SIGNAL_SKIP_STARTUP:
         ESP_LOGI(TAG, "Initialize Zigbee stack");
         esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_INITIALIZATION);
@@ -155,18 +137,19 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
         break;
     case ESP_ZB_BDB_SIGNAL_STEERING:
         if (err_status == ESP_OK) {
-            ESP_LOGI(TAG, "Network steering started");
+            ESP_LOGI(TAG, "Network found");
 
-            esp_zb_ieee_addr_t extended_pan_id;
-            esp_zb_get_extended_pan_id(extended_pan_id);
-            ESP_LOGI(TAG, "Current network info (Extended PAN ID: %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x, PAN ID: 0x%04hx, Channel:%d, Short Address: 0x%04hx)",
-                    extended_pan_id[7], extended_pan_id[6], extended_pan_id[5], extended_pan_id[4],
-                    extended_pan_id[3], extended_pan_id[2], extended_pan_id[1], extended_pan_id[0],
-                    esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address());
+            if (!started_timeout_task) {
+                started_timeout_task = true;
+                xTaskCreate(network_timeout, "network_timeout", 4096, NULL, 5, NULL); //Handle basic disconnects
+                factory_reset_timeout_timer = xTimerCreate("factory_reset_timeout_timer", pdMS_TO_TICKS(FACTORY_RESET_TIME), pdFALSE, NULL, timer_callback); //Handle a possible network restart
+                xTimerStart(factory_reset_timeout_timer, 10);
+            }
+
         } else {
-            ESP_LOGE(TAG, "Network steering failed, error: %s", esp_err_to_name(err_status));
-            // Retry steering after x seconds
-            esp_zb_scheduler_alarm(network_steering_retry_cb, 0, STEERING_RETRY_TIMER);    
+            ESP_LOGE(TAG, "Network steering failed, error: %s, retrying...", esp_err_to_name(err_status));
+
+            esp_zb_scheduler_alarm(network_steering_retry_cb, 0, 5000);   //Retry every 5 seconds
         }
         break;
     case ESP_ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY:
@@ -176,25 +159,12 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
             ESP_LOGI(TAG, "Production config loaded successfully.");
         }
         break;
-    case ESP_ZB_NWK_SIGNAL_PERMIT_JOIN_STATUS:
-        ESP_LOGI(TAG, "Network is permitting joining now");
-        break;
     //Checks for connection severed
     case ESP_ZB_NWK_SIGNAL_NO_ACTIVE_LINKS_LEFT:
-        ESP_LOGE(TAG, "Hardware failure"); //I havent encountered this yet except for the battery turning off which I fixed with the timeout, when this ever occurs Ill need to get it dealt with
+        ESP_LOGE(TAG, "Hardware or unknown failure"); //Likely caused by a power outage
         break;
     case ESP_ZB_NLME_STATUS_INDICATION:
-        disconnect_count++;
-        ESP_LOGE(TAG, "Connection severed (interuption #%d), attempting steering to recover...", disconnect_count);
-
-        //Start steering if not already in progress and device isnt in a network
-        if (!esp_zb_bdb_dev_joined() && !steering_in_progress) {
-            steering_in_progress = true;
-            esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
-        }
-        break;
-    case ESP_ZB_ZDO_SIGNAL_LEAVE:
-        ESP_LOGE(TAG, "I left the network by request");
+        ESP_LOGE(TAG, "Connection severed from loss of a link"); //Likely due to a range issue or random interference
         break;
     default:
         ESP_LOGI(TAG, "ZDO signal: %s (0x%x), status: %s", esp_zb_zdo_signal_to_string(sig_type), sig_type, esp_err_to_name(err_status));
@@ -218,7 +188,6 @@ void init_led()
     };
     gpio_config(&io_conf);
 
-    //Init to 0 and turn on only when 1st piece of data received
     gpio_set_level(LED_GPIO_PIN, 0); 
 
 }
