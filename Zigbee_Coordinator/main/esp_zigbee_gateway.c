@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
+#include "freertos/queue.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_coexist.h"
 #include "esp_check.h"
@@ -30,6 +31,9 @@ static const bool DO_I2C_REPORTING = true; //! used for turning on/off RPi readi
 #define I2C_BUF_LEN 128
 #define RTT_BYTE_IDENTIFIER 0xB2
 #define DISCONNECT_BYTE_IDENTIFIER 0xA1
+//For sending with a queue
+static QueueHandle_t i2c_queue;
+#define I2C_MSG_LEN 9
 
 //Vibration Sensor data collection
 #define PIEZO_ADC_CHANNEL    ADC_CHANNEL_2  // GPIO2
@@ -67,15 +71,6 @@ static uint64_t previous_send_time = 0;
  
 //Tag
 static const char *TAG = "ESP_ZB_COORDINATOR"; 
-
-
-/*
-    CALLBACKS
-*/
-//Puts commission on the stack in a context its normally not possible
-static void bdb_start_top_level_commissioning_cb(uint8_t mode_mask) {
-    ESP_RETURN_ON_FALSE(esp_zb_bdb_start_top_level_commissioning(mode_mask) == ESP_OK, , TAG, "Failed to start Zigbee bdb commissioning");
-}
 
 
 /*
@@ -132,7 +127,23 @@ void adc_read_task(void *arg)
     }
 }
 
+//For queuing I2c messages rather than direct blocking calls
+void i2c_writer_task(void *arg) {
+    uint8_t buffer[I2C_MSG_LEN];
+    while (1) {
+        if (xQueueReceive(i2c_queue, buffer, portMAX_DELAY)) {
+            i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
+        }
+    }
+}
 
+/*
+    CALLBACKS
+*/
+//Puts commission on the stack in a context its normally not possible
+static void bdb_start_top_level_commissioning_cb(uint8_t mode_mask) {
+    ESP_RETURN_ON_FALSE(esp_zb_bdb_start_top_level_commissioning(mode_mask) == ESP_OK, , TAG, "Failed to start Zigbee bdb commissioning");
+}
 
 //Happens when 2 ACKs are missed and the timer expires
 void timer_callback(TimerHandle_t xTimer) {
@@ -140,17 +151,16 @@ void timer_callback(TimerHandle_t xTimer) {
     gpio_set_level(LED_GPIO_PIN, 0);
 
     if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
-        uint8_t buffer[9];
-        
+        uint8_t buffer[I2C_MSG_LEN];
         buffer[0] = DISCONNECT_BYTE_IDENTIFIER;  // Identifier
         for (int i = 0; i < 8; i++) {
             buffer[i + 1] = (esp_timer_get_time() >> (56 - i * 8)) & 0xFF;
         } 
-
-        // Write to internal ring buffer (I2C slave will return this on RPi request)
-        i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
+        xQueueSend(i2c_queue, buffer, 0); // Non-blocking queue send
     }
 }
+
+
 
 
 /*
@@ -169,15 +179,14 @@ static esp_err_t zb_custom_cmd_handler(const esp_zb_zcl_custom_cluster_command_m
 
     //Send the RTT I2C
     if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
-        uint8_t buffer[9];
+        uint8_t buffer[I2C_MSG_LEN];
         
         buffer[0] = RTT_BYTE_IDENTIFIER;  // Identifier
         for (int i = 0; i < 8; i++) {
             buffer[i + 1] = (rtt >> (56 - i * 8)) & 0xFF;
         } 
 
-        // Write to internal ring buffer (I2C slave will return this on RPi request)
-        i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
+        xQueueSend(i2c_queue, buffer, 0); // Non-blocking queue send
     }
 
     return ESP_OK;
@@ -402,6 +411,8 @@ void app_main(void) {
     init_led(); 
     if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
         init_i2c_slave();
+        i2c_queue = xQueueCreate(10, I2C_MSG_LEN);
+        xTaskCreate(i2c_writer_task, "i2c_writer_task", 2048, NULL, 5, NULL);
     }
     xTaskCreate(esp_zb_task, "Zigbee_main", 8192, NULL, 5, NULL);
 }
