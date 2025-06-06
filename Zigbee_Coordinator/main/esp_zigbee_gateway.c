@@ -31,9 +31,7 @@ static const bool DO_I2C_REPORTING = true; //! used for turning on/off RPi readi
 #define I2C_BUF_LEN 128
 #define RTT_BYTE_IDENTIFIER 0xB2
 #define DISCONNECT_BYTE_IDENTIFIER 0xA1
-//For sending with a queue
-static QueueHandle_t i2c_queue;
-#define I2C_MSG_LEN 9
+
 
 //Vibration Sensor data collection
 #define PIEZO_ADC_CHANNEL    ADC_CHANNEL_2  // GPIO2
@@ -43,10 +41,6 @@ static QueueHandle_t i2c_queue;
 static uint16_t sensor_value = 0; 
 adc_oneshot_unit_handle_t adc_handle;
 static bool created_sensor_task = false; // Prevent multiple task creation, currently starts in ANNCE signal when new device joins network
-
-//Timeout
-#define TIMEOUT_CYCLE_TIME SENSOR_READING_DELAY + 2000
-static TimerHandle_t timeout_timer = NULL;
 
 //Cluster and Endpoints
 #define ESP_ZB_ROUTER_ENDPOINT        0x02 //Not necessary for endpoints on different devices to differ, however it allows for easier tracking
@@ -127,15 +121,6 @@ void adc_read_task(void *arg)
     }
 }
 
-//For queuing I2c messages rather than direct blocking calls
-void i2c_writer_task(void *arg) {
-    uint8_t buffer[I2C_MSG_LEN];
-    while (1) {
-        if (xQueueReceive(i2c_queue, buffer, portMAX_DELAY)) {
-            i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
-        }
-    }
-}
 
 /*
     CALLBACKS
@@ -145,21 +130,6 @@ static void bdb_start_top_level_commissioning_cb(uint8_t mode_mask) {
     ESP_RETURN_ON_FALSE(esp_zb_bdb_start_top_level_commissioning(mode_mask) == ESP_OK, , TAG, "Failed to start Zigbee bdb commissioning");
 }
 
-//Happens when 2 ACKs are missed and the timer expires
-void timer_callback(TimerHandle_t xTimer) {
-    ESP_LOGE(TAG, "ACK missed, assuming disconnect and logging");
-    gpio_set_level(LED_GPIO_PIN, 0);
-
-    if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
-        uint8_t buffer[I2C_MSG_LEN];
-        buffer[0] = DISCONNECT_BYTE_IDENTIFIER;  // Identifier
-        for (int i = 0; i < 8; i++) {
-            buffer[i + 1] = (esp_timer_get_time() >> (56 - i * 8)) & 0xFF;
-        } 
-        xQueueSend(i2c_queue, buffer, 0); // Non-blocking queue send
-    }
-}
-
 
 
 
@@ -167,7 +137,6 @@ void timer_callback(TimerHandle_t xTimer) {
     HANDLERS
 */
 static esp_err_t zb_custom_cmd_handler(const esp_zb_zcl_custom_cluster_command_message_t *message) {
-    xTimerReset(timeout_timer, 0);
     gpio_set_level(LED_GPIO_PIN, 1);
 
 
@@ -177,16 +146,16 @@ static esp_err_t zb_custom_cmd_handler(const esp_zb_zcl_custom_cluster_command_m
     uint64_t rtt = (esp_timer_get_time() - previous_send_time) / 1000; // Convert from micro to milliseconds
     ESP_LOGI(TAG, "Sensor data acknowledged with an RTT of %llu", rtt);
 
-    //Send the RTT I2C
+    //Send the RTT I2C or Disconnect I2C
     if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
-        uint8_t buffer[I2C_MSG_LEN];
-        
+        uint8_t buffer[9];
+
         buffer[0] = RTT_BYTE_IDENTIFIER;  // Identifier
         for (int i = 0; i < 8; i++) {
             buffer[i + 1] = (rtt >> (56 - i * 8)) & 0xFF;
         } 
 
-        xQueueSend(i2c_queue, buffer, 0); // Non-blocking queue send
+        i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
     }
 
     return ESP_OK;
@@ -260,8 +229,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
         if (!created_sensor_task) {
             created_sensor_task = true;
             xTaskCreate(adc_read_task, "adc_read_task", 2048, NULL, 5, NULL);
-            timeout_timer = xTimerCreate("timeout_timer", pdMS_TO_TICKS(TIMEOUT_CYCLE_TIME), pdFALSE, NULL, timer_callback);
-            xTimerStart(timeout_timer, 10);
         }
 
         break;
@@ -283,11 +250,26 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
         esp_zb_set_node_descriptor_manufacturer_code(ESP_MANUFACTURER_CODE);
         break;
     case ESP_ZB_NLME_STATUS_INDICATION:
-        ESP_LOGE(TAG, "Connection severed from loss of a link"); //Likely due to a range issue or random interference
+        ESP_LOGE(TAG, "Connection severed from loss of a link"); //Likely due to a range issue or random interference 
+        if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
+            uint8_t buffer[9];
+            buffer[0] = DISCONNECT_BYTE_IDENTIFIER;  // Identifier
+            for (int i = 0; i < 8; i++) {
+                buffer[i + 1] = ((esp_timer_get_time() / 1000) >> (56 - i * 8)) & 0xFF;
+            }
+            i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
+        }
         break;
-    //Router out of range or lost power
     case ESP_ZB_ZDO_DEVICE_UNAVAILABLE:
         ESP_LOGE(TAG, "Router no longer available"); //Router out of range or lost power
+        if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
+            uint8_t buffer[9];
+            buffer[0] = DISCONNECT_BYTE_IDENTIFIER;  // Identifier
+            for (int i = 0; i < 8; i++) {
+                buffer[i + 1] = ((esp_timer_get_time() / 1000) >> (56 - i * 8)) & 0xFF;
+            }
+            i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
+        }
         break;
     default:
         ESP_LOGI(TAG, "ZDO signal: %s (0x%x), status: %s", esp_zb_zdo_signal_to_string(sig_type), sig_type,
@@ -411,8 +393,15 @@ void app_main(void) {
     init_led(); 
     if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
         init_i2c_slave();
-        i2c_queue = xQueueCreate(10, I2C_MSG_LEN);
-        xTaskCreate(i2c_writer_task, "i2c_writer_task", 2048, NULL, 5, NULL);
+        if (reason == 4) {
+            //Watchdog timeout
+            uint8_t buffer[9];
+            buffer[0] = DISCONNECT_BYTE_IDENTIFIER;  // Identifier
+            for (int i = 0; i < 8; i++) {
+                buffer[i + 1] = ((esp_timer_get_time() / 1000) >> (56 - i * 8)) & 0xFF;
+            }
+            i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
+        } 
     }
     xTaskCreate(esp_zb_task, "Zigbee_main", 8192, NULL, 5, NULL);
 }
