@@ -18,6 +18,7 @@
         "freertos.h": "c",
         "compare": "c",
         "cstdint": "c",
-        "esp_zigbee_gateway.h": "c"
+        "esp_zigbee_gateway.h": "c",
+        "esp_coexist.h": "c"
     }
 }
