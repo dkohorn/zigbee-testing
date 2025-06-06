@@ -35,7 +35,7 @@ static const bool DO_I2C_REPORTING = true; //! used for turning on/off RPi readi
 #define PIEZO_ADC_CHANNEL    ADC_CHANNEL_2  // GPIO2
 #define PIEZO_ADC_UNIT          ADC_UNIT_1
 #define SENSOR_DATA_COMMAND_REQ_ID          0x0002
-#define SENSOR_READING_DELAY 10000 
+#define SENSOR_READING_DELAY 15000 
 static uint16_t sensor_value = 0; 
 adc_oneshot_unit_handle_t adc_handle;
 static bool created_sensor_task = false; // Prevent multiple task creation, currently starts in ANNCE signal when new device joins network
@@ -134,8 +134,9 @@ void adc_read_task(void *arg)
 
 
 
-//Happens when an ACK is missed and the timer expires
+//Happens when 2 ACKs are missed and the timer expires
 void timer_callback(TimerHandle_t xTimer) {
+    ESP_LOGE(TAG, "ACK missed, assuming disconnect and logging");
     gpio_set_level(LED_GPIO_PIN, 0);
 
     if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
