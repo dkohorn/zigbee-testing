@@ -1,5 +1,9 @@
 # zigbee-testing
 
+## Acknowledgements
+
+The shell structure of this code was sourced from the ESP-IDF example project "esp_zigbee_gateway". All further modifications were made by me with the aid of ChatGPT.
+
 ## Contents and Purpose
 
 This repository contains code for 2 ESP32-H2 Devkit N4 boards, as well as code for a RPi5. The purpose of this project is to set up a Zigbee network between the ESP boards where they can be remotely located in a test environment, where the RPi acts as a data log and storage.
