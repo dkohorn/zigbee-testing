@@ -30,7 +30,9 @@ static const bool DO_I2C_REPORTING = true; //! used for turning on/off RPi readi
 #define I2C_SLAVE_NUM I2C_NUM_0
 #define I2C_BUF_LEN 128
 #define RTT_BYTE_IDENTIFIER 0xB2
-#define DISCONNECT_BYTE_IDENTIFIER 0xA1
+#define DISCONNECT_BYTE_IDENTIFIER_WATCHDOG 0xA1
+#define DISCONNECT_BYTE_IDENTIFIER_NLME 0xA2
+#define DISCONNECT_BYTE_IDENTIFIER_DEV_UNAVAILABLE 0xA3
 
 
 //Vibration Sensor data collection
@@ -253,23 +255,33 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
         ESP_LOGE(TAG, "Connection severed from loss of a link"); //Likely due to a range issue or random interference 
         if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
             uint8_t buffer[9];
-            buffer[0] = DISCONNECT_BYTE_IDENTIFIER;  // Identifier
+            buffer[0] = DISCONNECT_BYTE_IDENTIFIER_NLME;  // Identifier
             for (int i = 0; i < 8; i++) {
                 buffer[i + 1] = ((esp_timer_get_time() / 1000) >> (56 - i * 8)) & 0xFF;
             }
             i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
         }
+
+        //These errors seem to be blocking and prevent a reconnection, so full resetting device for a new network
+        esp_zb_factory_reset();
+        esp_restart();
+
         break;
     case ESP_ZB_ZDO_DEVICE_UNAVAILABLE:
         ESP_LOGE(TAG, "Router no longer available"); //Router out of range or lost power
         if (DO_I2C_REPORTING) { //!Will be disabled if DO_I2C_REPORTING = false
             uint8_t buffer[9];
-            buffer[0] = DISCONNECT_BYTE_IDENTIFIER;  // Identifier
+            buffer[0] = DISCONNECT_BYTE_IDENTIFIER_DEV_UNAVAILABLE;  // Identifier
             for (int i = 0; i < 8; i++) {
                 buffer[i + 1] = ((esp_timer_get_time() / 1000) >> (56 - i * 8)) & 0xFF;
             }
             i2c_slave_write_buffer(I2C_SLAVE_NUM, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
         }
+
+        //These errors seem to be blocking and prevent a reconnection, so full resetting device for a new network
+        esp_zb_factory_reset();
+        esp_restart();
+
         break;
     default:
         ESP_LOGI(TAG, "ZDO signal: %s (0x%x), status: %s", esp_zb_zdo_signal_to_string(sig_type), sig_type,
@@ -396,7 +408,7 @@ void app_main(void) {
         if (reason == 4) {
             //Watchdog timeout
             uint8_t buffer[9];
-            buffer[0] = DISCONNECT_BYTE_IDENTIFIER;  // Identifier
+            buffer[0] = DISCONNECT_BYTE_IDENTIFIER_WATCHDOG;  // Identifier
             for (int i = 0; i < 8; i++) {
                 buffer[i + 1] = ((esp_timer_get_time() / 1000) >> (56 - i * 8)) & 0xFF;
             }
