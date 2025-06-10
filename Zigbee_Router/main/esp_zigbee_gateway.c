@@ -38,6 +38,9 @@ static bool started_timeout_task = false; // A one-time flag to start the timeou
 #define FACTORY_RESET_TIME 30000 
 static TimerHandle_t factory_reset_timeout_timer = NULL;
 
+#define MAX_STEER_RETRIES 5 
+static int current_steer_count = 0;
+
 
 //Tag
 static const char *TAG = "ESP_ZB_RECEIVER";
@@ -46,7 +49,14 @@ static const char *TAG = "ESP_ZB_RECEIVER";
     CALLBACKS
 */
 static void network_steering_retry_cb(uint8_t param) {
-    esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
+    current_steer_count += 1;
+
+    if (current_steer_count < MAX_STEER_RETRIES) {
+        esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
+    }
+    else {
+        esp_zb_factory_reset();
+    }
 }
 
 //Happens on 30 seconds of no response from coordinator, triggers full factory reset to clear cache for new network joining
@@ -138,6 +148,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
     case ESP_ZB_BDB_SIGNAL_STEERING:
         if (err_status == ESP_OK) {
             ESP_LOGI(TAG, "Network found");
+            current_steer_count = 0;
 
             if (!started_timeout_task) {
                 started_timeout_task = true;
@@ -147,7 +158,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct) {
             }
 
         } else {
-            ESP_LOGE(TAG, "Network steering failed, error: %s, retrying...", esp_err_to_name(err_status));
+            ESP_LOGE(TAG, "Network steering failed (attempt #%d), error: %s, retrying...", current_steer_count, esp_err_to_name(err_status));
 
             esp_zb_scheduler_alarm(network_steering_retry_cb, 0, 5000);   //Retry every 5 seconds
         }
