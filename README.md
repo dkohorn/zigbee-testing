@@ -55,4 +55,11 @@ The Zigbee connection should be made if the ESP devices are powered. Whenever th
    - Watchdog timeouts: Commonly caused by a holdup on a task due to some unknown error. The coordinator should reset itself and the recovery leads to the creation of a new network.
    - Device unavailable signal: Typically caused by a router going out of range, or a loss of power to the router.
    - NLME status signal: Typically caused by a range issue or other random interference.
+ - If running offload.py directly on the RPi using a connected monitor, ensure that the program is able to keep running once the monitor is disconnected. A solution is to install and use screen:
+   - sudo apt-get screen (install)
+   - screen -S screen_name (start the screen, will open a new terminal)
+   - python offload.py
+   - Ctrl + A + D (detach screen to run in the background)
+   - Unplug monitor
+   - When returning to check results, run screen -r screen_name to reopen the terminal and stop offload.py
  
